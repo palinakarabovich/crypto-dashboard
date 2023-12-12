@@ -184,18 +184,24 @@ export default {
       tickersList: [],
       inputSuggections: [],
       ticker: "",
-      tickers: [],
+      tickers: localStorage.getItem("tickers")
+        ? JSON.parse(localStorage.getItem("tickers"))
+        : [],
       sel: null,
       graph: [],
       isInputValid: true,
     };
   },
   created: async function () {
+    window.addEventListener("beforeunload", this.saveData);
     const f = await fetch(
       "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
     );
     const { Data } = await f.json();
     this.tickersList = Object.keys(Data);
+    if (this.tickers.length) {
+      this.tickers.forEach((t) => this.subscribeToPriceUpdates(t));
+    }
   },
   methods: {
     add() {
@@ -205,20 +211,23 @@ export default {
           price: "-",
         };
         this.tickers.push(currentTicker);
-        setInterval(async () => {
-          const f = await fetch(
-            `https://min-api.cryptocompare.com/data/price?fsym=${currentTicker.name}&tsyms=USD&api_key=bdd9c98341c80c28459323768736a77bdab43ebdaca5e0b34746c745a473732a`
-          );
-          const { USD } = await f.json();
-          this.tickers.find((t) => t.name === currentTicker.name).price =
-            USD > 0 ? USD.toFixed(2) : USD.toPrecision(2);
-          if (this.sel !== null && this.sel.name === currentTicker.name) {
-            this.graph.push(USD);
-          }
-        }, 5000);
+        this.subscribeToPriceUpdates(currentTicker);
         this.ticker = "";
         this.inputSuggections = [];
       } else return;
+    },
+    subscribeToPriceUpdates({ name }) {
+      setInterval(async () => {
+        const f = await fetch(
+          `https://min-api.cryptocompare.com/data/price?fsym=${name}&tsyms=USD&api_key=bdd9c98341c80c28459323768736a77bdab43ebdaca5e0b34746c745a473732a`
+        );
+        const { USD } = await f.json();
+        this.tickers.find((t) => t.name === name).price =
+          USD > 0 ? USD.toFixed(2) : USD.toPrecision(2);
+        if (this.sel !== null && this.sel.name === name) {
+          this.graph.push(USD);
+        }
+      }, 5000);
     },
     handleInputChange() {
       this.inputSuggections = [];
@@ -231,7 +240,6 @@ export default {
         }
         let t = this.tickersList[i];
         t.includes(this.ticker.toUpperCase()) && this.inputSuggections.push(t);
-        console.log(this.inputSuggections);
       }
     },
     handleLabelClick(l) {
@@ -255,6 +263,9 @@ export default {
     closeGraph() {
       this.sel = null;
       this.graph = [];
+    },
+    saveData() {
+      localStorage.setItem("tickers", JSON.stringify(this.tickers));
     },
   },
 };
