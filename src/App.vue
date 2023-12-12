@@ -87,12 +87,36 @@
         </button>
       </section>
       <template v-if="tickers.length">
+        <button
+          @click="page = page - 1"
+          v-if="page > 1"
+          type="button"
+          class="my-4 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+        >
+          Назад
+        </button>
+        PAGE: {{ page }}
+        <button
+          @click="page = page + 1"
+          v-if="hasNextPage"
+          type="button"
+          class="my-4 mx-2 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+        >
+          Вперед
+        </button>
+        <div>
+          <p class="block text-sm font-medium text-gray-700">Фильтрация</p>
+          <input
+            v-model="filter"
+            class="block pr-10 border-gray-300 text-gray-900 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md"
+          />
+        </div>
         <hr class="w-full border-t border-gray-600 my-4" />
         <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
           <div
             class="bg-white overflow-hidden shadow rounded-lg border-purple-800 border-solid cursor-pointer"
-            v-for="(t, index) in tickers"
-            :key="index"
+            v-for="t in filteredTickers()"
+            :key="t.name"
             @click="select(t)"
             :class="{
               'border-4': sel === t,
@@ -190,9 +214,24 @@ export default {
       sel: null,
       graph: [],
       isInputValid: true,
+      page: 1,
+      filter: "",
+      hasNextPage: false,
     };
   },
   created: async function () {
+    const windowData = Object.fromEntries(
+      new URL(window.location).searchParams.entries()
+    );
+
+    if (windowData.filter) {
+      this.filter = windowData.filter;
+    }
+
+    if (windowData.page) {
+      this.page = windowData.page;
+    }
+
     window.addEventListener("beforeunload", this.saveData);
     const f = await fetch(
       "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
@@ -214,6 +253,7 @@ export default {
         this.subscribeToPriceUpdates(currentTicker);
         this.ticker = "";
         this.inputSuggections = [];
+        this.filter = "";
       } else return;
     },
     subscribeToPriceUpdates({ name }) {
@@ -222,9 +262,13 @@ export default {
           `https://min-api.cryptocompare.com/data/price?fsym=${name}&tsyms=USD&api_key=bdd9c98341c80c28459323768736a77bdab43ebdaca5e0b34746c745a473732a`
         );
         const { USD } = await f.json();
-        this.tickers.find((t) => t.name === name).price =
-          USD > 0 ? USD.toFixed(2) : USD.toPrecision(2);
-        if (this.sel !== null && this.sel.name === name) {
+        if (USD) {
+          this.tickers.find((t) => t.name === name).price =
+            USD > 0 ? USD.toFixed(2) : USD.toPrecision(2);
+        } else {
+          this.tickers.find((t) => t.name === name).price = "no data";
+        }
+        if (this.sel !== null && this.sel.name === name && USD) {
           this.graph.push(USD);
         }
       }, 5000);
@@ -258,7 +302,9 @@ export default {
       );
     },
     select(ticker) {
-      this.sel = ticker;
+      if (ticker.price !== "no data") {
+        this.sel = ticker;
+      }
     },
     closeGraph() {
       this.sel = null;
@@ -266,6 +312,40 @@ export default {
     },
     saveData() {
       localStorage.setItem("tickers", JSON.stringify(this.tickers));
+    },
+    filteredTickers() {
+      this.closeGraph();
+      let filter = "";
+      const start = (this.page - 1) * 6;
+      const end = this.page * 6;
+
+      if (this.filter) {
+        filter = this.filter.toUpperCase();
+      }
+
+      const filteredData = this.tickers.filter((t) => t.name.includes(filter));
+
+      this.hasNextPage = filteredData.length > end;
+
+      return filteredData.slice(start, end);
+    },
+  },
+  watch: {
+    filter() {
+      this.page = 1;
+
+      window.history.pushState(
+        null,
+        document.title,
+        `${window.location.pathname}?filter=${this.filter}&page=${this.page}`
+      );
+    },
+    page() {
+      window.history.pushState(
+        null,
+        document.title,
+        `${window.location.pathname}?filter=${this.filter}&page=${this.page}`
+      );
     },
   },
 };
