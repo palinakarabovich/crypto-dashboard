@@ -108,6 +108,7 @@
           <p class="block text-sm font-medium text-gray-700">Фильтрация</p>
           <input
             v-model="filter"
+            @input="page = 1"
             class="block pr-10 border-gray-300 text-gray-900 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md"
           />
         </div>
@@ -115,11 +116,11 @@
         <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
           <div
             class="bg-white overflow-hidden shadow rounded-lg border-purple-800 border-solid cursor-pointer"
-            v-for="t in filteredTickers()"
+            v-for="t in paginatedTickers"
             :key="t.name"
             @click="select(t)"
             :class="{
-              'border-4': sel === t,
+              'border-4': selectedTicker === t,
             }"
           >
             <div class="px-4 py-5 sm:p-6 text-center">
@@ -154,13 +155,13 @@
         </dl>
         <hr class="w-full border-t border-gray-600 my-4" />
       </template>
-      <section v-if="sel" class="relative">
+      <section v-if="selectedTicker" class="relative">
         <h3 class="text-lg leading-6 font-medium text-gray-900 my-8">
-          {{ sel.name }} - USD
+          {{ selectedTicker.name }} - USD
         </h3>
         <div class="flex items-end border-gray-600 border-b border-l h-64">
           <div
-            v-for="(bar, index) in normalizeGraph()"
+            v-for="(bar, index) in normalizedGraph"
             :key="index"
             class="bg-purple-800 border w-10"
             :style="{
@@ -205,18 +206,20 @@ export default {
   name: "App",
   data() {
     return {
+      filter: "",
+      ticker: "",
+
       tickersList: [],
       inputSuggections: [],
-      ticker: "",
+
       tickers: localStorage.getItem("tickers")
         ? JSON.parse(localStorage.getItem("tickers"))
         : [],
-      sel: null,
+
+      selectedTicker: null,
       graph: [],
-      isInputValid: true,
+
       page: 1,
-      filter: "",
-      hasNextPage: false,
     };
   },
   created: async function () {
@@ -252,8 +255,6 @@ export default {
         this.tickers.push(currentTicker);
         this.subscribeToPriceUpdates(currentTicker);
         this.ticker = "";
-        this.inputSuggections = [];
-        this.filter = "";
       } else return;
     },
     subscribeToPriceUpdates({ name }) {
@@ -268,84 +269,122 @@ export default {
         } else {
           this.tickers.find((t) => t.name === name).price = "no data";
         }
-        if (this.sel !== null && this.sel.name === name && USD) {
+        if (
+          this.selectedTicker !== null &&
+          this.selectedTicker.name === name &&
+          USD
+        ) {
           this.graph.push(USD);
         }
-      }, 5000);
+      }, 30000);
     },
     handleInputChange() {
-      this.inputSuggections = [];
-      this.tickers.some((t) => t.name === this.ticker.toUpperCase())
-        ? (this.isInputValid = false)
-        : (this.isInputValid = true);
-      for (let i = 0; i < this.tickersList.length; i++) {
-        if (this.inputSuggections.length > 3) {
-          break;
+      if (this.isInputValid && this.ticker) {
+        for (let i = 0; i < this.tickersList.length; i++) {
+          if (this.inputSuggections.length > 3) {
+            break;
+          }
+
+          let suggestedTicker = this.tickersList[i];
+
+          suggestedTicker.includes(this.ticker.toUpperCase()) &&
+            !this.tickers.some((t) => t.name === suggestedTicker) &&
+            this.inputSuggections.push(suggestedTicker);
         }
-        let t = this.tickersList[i];
-        t.includes(this.ticker.toUpperCase()) && this.inputSuggections.push(t);
       }
     },
     handleLabelClick(l) {
       this.ticker = l;
-      this.add();
+      if (this.isInputValid) {
+        this.add();
+      }
     },
     handleDelete(tickerToRemove) {
+      this.closeGraph();
       this.tickers = this.tickers.filter((t) => t !== tickerToRemove);
-      this.sel = null;
-    },
-    normalizeGraph() {
-      const maxValue = Math.max(...this.graph);
-      const minValue = Math.min(...this.graph);
-      return this.graph.map(
-        (g) => 10 + ((g - minValue) * 90) / (maxValue - minValue)
-      );
     },
     select(ticker) {
       if (ticker.price !== "no data") {
-        this.sel = ticker;
+        this.selectedTicker = ticker;
       }
     },
     closeGraph() {
-      this.sel = null;
-      this.graph = [];
+      this.selectedTicker = null;
     },
     saveData() {
       localStorage.setItem("tickers", JSON.stringify(this.tickers));
     },
+  },
+  watch: {
+    selectedTicker() {
+      this.graph = [];
+    },
+    ticker() {
+      this.inputSuggections = [];
+      if (this.ticker === "") {
+        this.filter = "";
+      }
+    },
+    pageSearchParams(value) {
+      window.history.pushState(
+        null,
+        document.title,
+        `${window.location.pathname}?filter=${value.filter}&page=${value.page}`
+      );
+    },
+    filter() {
+      this.page = 1;
+    },
+    paginatedTickers() {
+      if (this.paginatedTickers.length === 0 && this.page > 1) {
+        this.page -= 1;
+      }
+    },
+  },
+  computed: {
+    //return some value that you use in your html-template, does not change anything
+    //naming - NO VERB, because it is calculated property
+    //do not accept arguments
+    startIndex() {
+      return (this.page - 1) * 6;
+    },
+    endIndex() {
+      return this.page * 6;
+    },
     filteredTickers() {
-      this.closeGraph();
       let filter = "";
-      const start = (this.page - 1) * 6;
-      const end = this.page * 6;
 
       if (this.filter) {
         filter = this.filter.toUpperCase();
       }
 
-      const filteredData = this.tickers.filter((t) => t.name.includes(filter));
-
-      this.hasNextPage = filteredData.length > end;
-
-      return filteredData.slice(start, end);
+      return this.tickers.filter((t) => t.name.includes(filter));
     },
-  },
-  watch: {
-    filter() {
-      this.page = 1;
+    paginatedTickers() {
+      return this.filteredTickers.slice(this.startIndex, this.endIndex);
+    },
+    hasNextPage() {
+      return this.filteredTickers.length > this.endIndex;
+    },
+    normalizedGraph() {
+      const maxValue = Math.max(...this.graph);
+      const minValue = Math.min(...this.graph);
 
-      window.history.pushState(
-        null,
-        document.title,
-        `${window.location.pathname}?filter=${this.filter}&page=${this.page}`
+      if (maxValue === minValue) {
+        return this.graph.map(() => 50);
+      }
+      return this.graph.map(
+        (g) => 10 + ((g - minValue) * 90) / (maxValue - minValue)
       );
     },
-    page() {
-      window.history.pushState(
-        null,
-        document.title,
-        `${window.location.pathname}?filter=${this.filter}&page=${this.page}`
-      );
+    pageSearchParams() {
+      return {
+        page: this.page,
+        filter: this.filter,
+      };
+    },
+    isInputValid() {
+      return !this.tickers.some((t) => t.name === this.ticker.toUpperCase());
     },
   },
 };
